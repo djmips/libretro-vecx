@@ -1938,11 +1938,10 @@ startDraw=cyclesRunning;
       }
       else if (((alg_xsh != alg_vector_dx) && (sig_ramp== 0)) || 
 	           ((-alg_ysh != alg_vector_dy)&& (sig_ramp== 0)) || 
-			   (makeUnsigned(alg_zsh) != alg_vector_color) || 
+			   (makeUnsigned(alg_zsh) != alg_vector_color)
 // removed Dec 2025			   ((sig_ramp == 0) != alg_ramping)
 			   )
       
-	  ww
 	  {
          /* the parameters of the vectoring processing has changed.
           * so end the current line.
