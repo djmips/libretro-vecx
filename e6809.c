@@ -113,10 +113,51 @@ void e6809_deserialize ( char* dst)
 	memcpy(&irq_status, dst, sizeof(int)); dst += sizeof(int);
 }
 
+#ifdef VECX_HOOKS
+unsigned e6809_get_reg (int reg)
+{
+	switch (reg)
+	{
+	case E6809_REG_A: return reg_a;
+	case E6809_REG_B: return reg_b;
+	case E6809_REG_DP: return reg_dp;
+	case E6809_REG_CC: return reg_cc;
+	case E6809_REG_X: return reg_x;
+	case E6809_REG_Y: return reg_y;
+	case E6809_REG_U: return reg_u;
+	case E6809_REG_S: return reg_s;
+	case E6809_REG_PC: return reg_pc;
+	}
+	return 0;
+}
+
+void e6809_set_reg (int reg, unsigned value)
+{
+	switch (reg)
+	{
+	case E6809_REG_A: reg_a = value & 0xff; break;
+	case E6809_REG_B: reg_b = value & 0xff; break;
+	case E6809_REG_DP: reg_dp = value & 0xff; break;
+	case E6809_REG_CC: reg_cc = value & 0xff; break;
+	case E6809_REG_X: reg_x = value & 0xffff; break;
+	case E6809_REG_Y: reg_y = value & 0xffff; break;
+	case E6809_REG_U: reg_u = value & 0xffff; break;
+	case E6809_REG_S: reg_s = value & 0xffff; break;
+	case E6809_REG_PC: reg_pc = value & 0xffff; break;
+	}
+}
+#endif
+
 /* user defined read and write functions */
 
 unsigned char (*e6809_read8) (unsigned address);
 void (*e6809_write8) (unsigned address, unsigned char data);
+#ifdef VECX_HOOKS
+unsigned e6809_op_pc;
+void (*e6809_read_hook) (unsigned address, unsigned data, int fetch);
+void (*e6809_write_hook) (unsigned address, unsigned data);
+void (*e6809_illegal_hook) (unsigned pc, unsigned code, int kind);
+#endif
 
 /* obtain a particular condition code. returns 0 or 1. */
 
@@ -190,7 +231,13 @@ static einline void set_reg_d (unsigned value)
 
 static einline unsigned read8 (unsigned address)
 {
+#ifdef VECX_HOOKS
+	unsigned data = (*e6809_read8) (address & 0xffff)&0xff;
+	if (e6809_read_hook) e6809_read_hook (address & 0xffff, data, 0);
+	return data;
+#else
 	return (*e6809_read8) (address & 0xffff)&0xff;
+#endif
 }
 
 /* write a byte ... only the lower 8-bits of the unsigned data
@@ -200,6 +247,9 @@ static einline unsigned read8 (unsigned address)
 static einline void write8 (unsigned address, unsigned data)
 {
 	(*e6809_write8) (address & 0xffff, (unsigned char) data);
+#ifdef VECX_HOOKS
+	if (e6809_write_hook) e6809_write_hook (address & 0xffff, data & 0xff);
+#endif
 }
 
 static einline unsigned read16 (unsigned address)
@@ -260,7 +310,12 @@ static einline unsigned pull16 (unsigned *sp)
 
 static einline unsigned pc_read8 (void)
 {
+#ifdef VECX_HOOKS
+	unsigned data = (*e6809_read8) (reg_pc & 0xffff)&0xff;
+	if (e6809_read_hook) e6809_read_hook (reg_pc & 0xffff, data, 1);
+#else
 	unsigned data = read8 (reg_pc);
+#endif
     reg_pc=(reg_pc+1)&0xffff;
 
 	return data;
@@ -270,7 +325,16 @@ static einline unsigned pc_read8 (void)
 
 static einline unsigned pc_read16 (void)
 {
+#ifdef VECX_HOOKS
+	unsigned datahi = (*e6809_read8) (reg_pc & 0xffff)&0xff;
+	unsigned datalo, data;
+	if (e6809_read_hook) e6809_read_hook (reg_pc & 0xffff, datahi, 1);
+	datalo = (*e6809_read8) ((reg_pc + 1) & 0xffff)&0xff;
+	if (e6809_read_hook) e6809_read_hook ((reg_pc + 1) & 0xffff, datalo, 1);
+	data = (datahi << 8) | datalo;
+#else
 	unsigned data = read16 (reg_pc);
+#endif
     reg_pc=(reg_pc+2)&0xffff;
 
 	return data;
@@ -541,6 +605,9 @@ static einline unsigned ea_indexed (unsigned *cycles)
 		*cycles += 5;
 		break;
 	default:
+#ifdef VECX_HOOKS
+		if (e6809_illegal_hook) e6809_illegal_hook (e6809_op_pc, op, E6809_ILLEGAL_INDEXED);
+#endif
 		break;
 	}
 
@@ -1083,6 +1150,9 @@ static einline unsigned exgtfr_read (unsigned reg)
          data = 0xff00 | reg_dp;
          break;
       default:
+#ifdef VECX_HOOKS
+		 if (e6809_illegal_hook) e6809_illegal_hook (e6809_op_pc, reg, E6809_ILLEGAL_EXGTFR);
+#endif
          data = 0xffff;
          break;
    }
@@ -1125,6 +1195,9 @@ static einline void exgtfr_write (unsigned reg, unsigned data)
          reg_dp = data&0xff;
          break;
       default:
+#ifdef VECX_HOOKS
+		 if (e6809_illegal_hook) e6809_illegal_hook (e6809_op_pc, reg, E6809_ILLEGAL_EXGTFR);
+#endif
          break;
    }
 }
@@ -1235,6 +1308,9 @@ unsigned e6809_sstep (unsigned irq_i, unsigned irq_f)
 	if (irq_status != IRQ_NORMAL) {
 		return cycles + 1;
 	}
+#ifdef VECX_HOOKS
+	e6809_op_pc = reg_pc;
+#endif
 
 	op = pc_read8 ();
 	switch (op) {
@@ -2990,6 +3066,9 @@ unsigned e6809_sstep (unsigned irq_i, unsigned irq_f)
 			cycles += 8;
 			break;
 		default:
+#ifdef VECX_HOOKS
+			if (e6809_illegal_hook) e6809_illegal_hook (e6809_op_pc, op, E6809_ILLEGAL_PAGE2);
+#endif
 			break;
 		}
 
@@ -3066,12 +3145,18 @@ unsigned e6809_sstep (unsigned irq_i, unsigned irq_f)
 			cycles += 8;
 			break;
 		default:
+#ifdef VECX_HOOKS
+			if (e6809_illegal_hook) e6809_illegal_hook (e6809_op_pc, op, E6809_ILLEGAL_PAGE3);
+#endif
 			break;
 		}
 
 		break;
 
 	default:
+#ifdef VECX_HOOKS
+		if (e6809_illegal_hook) e6809_illegal_hook (e6809_op_pc, op, E6809_ILLEGAL_OPCODE);
+#endif
 
 		break;
 	}

@@ -248,6 +248,11 @@ static int currentPB6 = 1;
 static int pb6_in = 0x40; // 0 or 0x40 in from external
 static int pb6_out = 0x40; // out from vectrex
 static int BANK_MAX = 1;
+#ifdef VECX_HOOKS
+int (*vecx_instruction_hook) (unsigned pc, int bank) = NULL;
+void (*vecx_bank_hook) (int old_bank, int new_bank) = NULL;
+int vecx_get_bank (void) { return currentBank; }
+#endif
 
 static int resistorOhm = 175;
 static double supplyVoltage=0;
@@ -677,6 +682,9 @@ void checkWriteSequence()
 // 256k carts (VB) are 4 banks of 64k
 void setBank()
 {
+#ifdef VECX_HOOKS
+	int oldBank = currentBank;
+#endif
 	currentBank = 0;
 	if (BANK_MAX == 1) return;
 	if (BANK_MAX >= 2)
@@ -687,6 +695,9 @@ void setBank()
 	{
 		if (currentIRQ) currentBank+=2;
 	}
+#ifdef VECX_HOOKS
+	if (vecx_bank_hook && currentBank != oldBank) vecx_bank_hook (oldBank, currentBank);
+#endif
 }
 void setPB6FromVectrex(int tobe_via_orb, int  tobe_via_ddrb, int orbInitiated)
 {
@@ -2144,6 +2155,13 @@ int vecx_emu (long cycles)
 
    while (cycles > 0)
    {
+#ifdef VECX_HOOKS
+      if (vecx_instruction_hook && vecx_instruction_hook (reg_pc, currentBank))
+      {
+         ret |= VECX_EMU_STOPPED;
+         break;
+      }
+#endif
 	  stepsDone = 0;
       icycles = e6809_sstep (via_ifr & 0x80, 0);
 	  vecx_intermediateSteps_static(icycles-stepsDone);

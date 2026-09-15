@@ -45,4 +45,19 @@ int vecx_deserialize(char* dst, int size);
 void vecx_reset (void);
 int vecx_emu (long cycles);
 
+
+#ifdef VECX_HOOKS
+/* vecx_emu() return bits; bit 0 already meant "a frame was rendered" */
+enum { VECX_EMU_FRAME = 1, VECX_EMU_STOPPED = 2 };
+
+/* called before every instruction; nonzero makes vecx_emu() return before
+   running it, with VECX_EMU_STOPPED set */
+extern int (*vecx_instruction_hook) (unsigned pc, int bank);
+
+/* called when the 64K/256K cart bank changes (not by vecx_reset) */
+extern void (*vecx_bank_hook) (int old_bank, int new_bank);
+
+int vecx_get_bank (void);
+#endif
+
 #endif
