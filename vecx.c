@@ -573,6 +573,13 @@ void write8 (unsigned address, unsigned char data)
 
       if (address & 0x1000)
       {
+#ifdef VTRACE
+         extern int vtrace_on;
+         extern void vtrace_log(unsigned pc, unsigned reg, unsigned val, unsigned u);
+         extern unsigned e6809_get_pc(void);
+         extern unsigned e6809_get_u(void);
+         if (vtrace_on) vtrace_log(e6809_get_pc(), address & 0xf, data, e6809_get_u());
+#endif
          switch (address & 0xf)
          {
             case 0x0:

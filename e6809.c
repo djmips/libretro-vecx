@@ -44,6 +44,14 @@ static unsigned reg_s;
 
 static unsigned reg_pc;
 
+#ifdef VTRACE
+unsigned e6809_get_pc(void) { return reg_pc; }
+unsigned e6809_get_u(void) { return reg_u; }
+int g_fetch = 0;            /* 1 while fetching an opcode/operand from the PC */
+unsigned g_insn_pc = 0;     /* start PC of the instruction currently executing */
+extern void vcov_data(unsigned pc, unsigned addr, int wr);  /* data-access log */
+#endif
+
 /* accumulators */
 
 static unsigned reg_a;
@@ -196,6 +204,9 @@ static einline void set_reg_d (unsigned value)
 
 static einline unsigned read8 (unsigned address)
 {
+#ifdef VTRACE
+	if (!g_fetch) vcov_data (g_insn_pc, address & 0xffff, 0);  /* data read */
+#endif
 	return (*e6809_read8) (address & 0xffff);
 }
 
@@ -205,6 +216,9 @@ static einline unsigned read8 (unsigned address)
 
 static einline void write8 (unsigned address, unsigned data)
 {
+#ifdef VTRACE
+	vcov_data (g_insn_pc, address & 0xffff, 1);                /* data write */
+#endif
 	(*e6809_write8) (address & 0xffff, (unsigned char) data);
 }
 
@@ -254,7 +268,12 @@ static einline unsigned pull16 (unsigned *sp)
 
 static einline unsigned pc_read8 (void)
 {
-	unsigned data = read8 (reg_pc);
+	unsigned data;
+#ifdef VTRACE
+	g_fetch = 1; data = read8 (reg_pc); g_fetch = 0;
+#else
+	data = read8 (reg_pc);
+#endif
 	reg_pc++;
 
 	return data;
@@ -264,7 +283,12 @@ static einline unsigned pc_read8 (void)
 
 static einline unsigned pc_read16 (void)
 {
-	unsigned data = read16 (reg_pc);
+	unsigned data;
+#ifdef VTRACE
+	g_fetch = 1; data = read16 (reg_pc); g_fetch = 0;
+#else
+	data = read16 (reg_pc);
+#endif
 	reg_pc += 2;
 
 	return data;
@@ -1098,6 +1122,9 @@ unsigned e6809_sstep (unsigned irq_i, unsigned irq_f)
 	unsigned op;
 	unsigned cycles = 0;
 	unsigned ea, i0, i1, r;
+#ifdef VTRACE
+	unsigned entry_pc = reg_pc;
+#endif
 
 	if (irq_f) {
 		if (GET_CC(FLAG_F) == 0) {
@@ -1142,6 +1169,17 @@ unsigned e6809_sstep (unsigned irq_i, unsigned irq_f)
 		return cycles + 1;
 	}
 
+#ifdef VTRACE
+	entry_pc = reg_pc;
+	{ extern unsigned char g_cov[]; g_cov[entry_pc & 0xffff] = 1; }  /* exec coverage */
+	g_insn_pc = entry_pc;        /* attribute data accesses to this instruction */
+	if (entry_pc < 0x8000) {     /* per-PC DP observation (0x100|dp; 0x200=conflict) */
+		extern unsigned short g_dp[];
+		unsigned short cur = 0x100 | (reg_dp & 0xff);
+		if (g_dp[entry_pc] == 0)       g_dp[entry_pc] = cur;
+		else if (g_dp[entry_pc] != cur) g_dp[entry_pc] = 0x200;
+	}
+#endif
 	op = pc_read8 ();
 
 	switch (op) {
@@ -2587,6 +2625,19 @@ unsigned e6809_sstep (unsigned irq_i, unsigned irq_f)
 		break;
 	}
 
+#ifdef VTRACE
+	{
+		extern int vtrace_on;
+		extern void vtrace_u_watch(unsigned pc, unsigned u);
+		if (vtrace_on) vtrace_u_watch(entry_pc, reg_u);
+	}
+#endif
+#ifdef VCYCLES   /* per-instruction cycle hook (pinball pharness); requires VTRACE for entry_pc */
+	{
+		extern void vcyc_insn(unsigned pc, unsigned cycles);
+		vcyc_insn(entry_pc, cycles);
+	}
+#endif
 	return cycles;
 }
 
