@@ -248,6 +248,13 @@ static int currentPB6 = 1;
 static int pb6_in = 0x40; // 0 or 0x40 in from external
 static int pb6_out = 0x40; // out from vectrex
 static int BANK_MAX = 1;
+
+/* Light pen in port 2 (see vecx.h). Host input, like alg_jch0: not serialized. */
+int vecx_lightpen_active = 0;
+long vecx_lightpen_x = 0;
+long vecx_lightpen_y = 0;
+long vecx_lightpen_seen = 0;
+int vecx_get_ca1 (void) { return (int)via_ca1; }
 #ifdef VECX_HOOKS
 int (*vecx_instruction_hook) (unsigned pc, int bank) = NULL;
 void (*vecx_bank_hook) (int old_bank, int new_bank) = NULL;
@@ -1522,6 +1529,9 @@ void vecx_reset (void)
 	alg_curr_x = ALG_MAX_X / 2;
 	alg_curr_y = ALG_MAX_Y / 2;
 
+	vecx_lightpen_active = 0;
+	vecx_lightpen_seen = 0;
+
 	alg_vectoring = 0;
 
 	vector_draw_cnt = 0;
@@ -2052,6 +2062,24 @@ if (sig_dy != 0)
 
       alg_vector_x1 = alg_curr_x;
       alg_vector_y1 = alg_curr_y;
+   }
+
+   /* Light pen: its sensor pulls CA1 low while the visible beam (the same
+    * test that starts a vector above) is within reach of it. via_sstep1 turns
+    * the edges into IFR bit 1. A lifted pen leaves CA1 idle high. */
+   if (vecx_lightpen_active &&
+       sig_blank == 1 && ((alg_zsh & 0x80) == 0) && ((alg_zsh & 0x7f) != 0) &&
+       alg_curr_x >= 0 && alg_curr_x < ALG_MAX_X &&
+       alg_curr_y >= 0 && alg_curr_y < ALG_MAX_Y &&
+       fabs(alg_curr_x - (double)vecx_lightpen_x) < VECX_LIGHTPEN_REACH &&
+       fabs(alg_curr_y - (double)vecx_lightpen_y) < VECX_LIGHTPEN_REACH)
+   {
+      via_ca1 = 0;
+      vecx_lightpen_seen++;
+   }
+   else
+   {
+      via_ca1 = 1;
    }
 }
 

@@ -45,6 +45,19 @@ int vecx_deserialize(char* dst, int size);
 void vecx_reset (void);
 int vecx_emu (long cycles);
 
+/* Light pen in controller port 2: its sensor pulls VIA CA1 low while the
+ * visible beam is within VECX_LIGHTPEN_REACH of it, and games read the edges
+ * as IFR bit 1. Position is in ALG units (0..ALG_MAX_X, 0..ALG_MAX_Y, y=0 at
+ * the top); active is 0 when the pen is lifted, which is what vecx_reset
+ * leaves. Host input, not part of the saved state. `seen` counts the cycles
+ * the pen saw light; vecx_reset zeroes it, otherwise only the host does. */
+#define VECX_LIGHTPEN_REACH 0x100
+extern int vecx_lightpen_active;
+extern long vecx_lightpen_x;
+extern long vecx_lightpen_y;
+extern long vecx_lightpen_seen;
+int vecx_get_ca1 (void);
+
 
 #ifdef VECX_HOOKS
 /* vecx_emu() return bits; bit 0 already meant "a frame was rendered" */
