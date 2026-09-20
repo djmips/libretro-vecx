@@ -21,9 +21,19 @@
 #define MAX_OUTPUT 0x0fff
 //#define MAX_OUTPUT 0x7f
 
-#define STEP3 1
-#define STEP2 length
-#define STEP  2
+/* Clock ratio. The Vectrex clocks its PSG at 1.5 MHz and a tone's half period
+ * is 8 x period x rate / clock output samples: at 44.1 kHz, 0.2352 x period.
+ * The loop below takes PSG_STEP counts per iteration and runs two iterations
+ * per sample, so one period unit must be 0.2352 x 2 x PSG_STEP = 240.84
+ * counts (PSG_SCALE). Noise and the envelope generator scale the same way,
+ * as in the MAME code this descends from. Before this a period unit was one
+ * count against 2 per iteration, which is a 1.4112 MHz chip: every note 5.9%,
+ * one semitone, flat. */
+#define PSG_STEP 512
+#define PSG_SCALE(period) (((period) * 24084 + 50) / 100)
+#define STEP3 241           /* a period of 0 counts as 1 */
+#define STEP2 (length * PSG_STEP)
+#define STEP  PSG_STEP
 
 extern unsigned snd_regs[16];
 
@@ -201,7 +211,7 @@ void e8910_write(int r, int v)
 	case AY_ACOARSE:
 		snd_regs[AY_ACOARSE] &= 0x0f;
 		old = PSG.PeriodA;
-		PSG.PeriodA = (snd_regs[AY_AFINE] + 256 * snd_regs[AY_ACOARSE]) * STEP3;
+		PSG.PeriodA = PSG_SCALE(snd_regs[AY_AFINE] + 256 * snd_regs[AY_ACOARSE]);
 		if (PSG.PeriodA == 0) PSG.PeriodA = STEP3;
 		PSG.CountA += PSG.PeriodA - old;
 		if (PSG.CountA <= 0) PSG.CountA = 1;
@@ -210,7 +220,7 @@ void e8910_write(int r, int v)
 	case AY_BCOARSE:
 		snd_regs[AY_BCOARSE] &= 0x0f;
 		old = PSG.PeriodB;
-		PSG.PeriodB = (snd_regs[AY_BFINE] + 256 * snd_regs[AY_BCOARSE]) * STEP3;
+		PSG.PeriodB = PSG_SCALE(snd_regs[AY_BFINE] + 256 * snd_regs[AY_BCOARSE]);
 		if (PSG.PeriodB == 0) PSG.PeriodB = STEP3;
 		PSG.CountB += PSG.PeriodB - old;
 		if (PSG.CountB <= 0) PSG.CountB = 1;
@@ -219,7 +229,7 @@ void e8910_write(int r, int v)
 	case AY_CCOARSE:
 		snd_regs[AY_CCOARSE] &= 0x0f;
 		old = PSG.PeriodC;
-		PSG.PeriodC = (snd_regs[AY_CFINE] + 256 * snd_regs[AY_CCOARSE]) * STEP3;
+		PSG.PeriodC = PSG_SCALE(snd_regs[AY_CFINE] + 256 * snd_regs[AY_CCOARSE]);
 		if (PSG.PeriodC == 0) PSG.PeriodC = STEP3;
 		PSG.CountC += PSG.PeriodC - old;
 		if (PSG.CountC <= 0) PSG.CountC = 1;
@@ -227,7 +237,7 @@ void e8910_write(int r, int v)
 	case AY_NOISEPER:
 		snd_regs[AY_NOISEPER] &= 0x1f;
 		old = PSG.PeriodN;
-		PSG.PeriodN = snd_regs[AY_NOISEPER] * STEP3;
+		PSG.PeriodN = PSG_SCALE(snd_regs[AY_NOISEPER]);
 		if (PSG.PeriodN == 0) PSG.PeriodN = STEP3;
 		PSG.CountN += PSG.PeriodN - old;
 		if (PSG.CountN <= 0) PSG.CountN = 1;
@@ -253,7 +263,7 @@ void e8910_write(int r, int v)
 	case AY_EFINE:
 	case AY_ECOARSE:
 		old = PSG.PeriodE;
-		PSG.PeriodE = ((snd_regs[AY_EFINE] + 256 * snd_regs[AY_ECOARSE])) * STEP3;
+		PSG.PeriodE = PSG_SCALE(snd_regs[AY_EFINE] + 256 * snd_regs[AY_ECOARSE]);
 		//if (PSG.PeriodE == 0) PSG.PeriodE = STEP3 / 2;
 		if (PSG.PeriodE == 0) PSG.PeriodE = STEP3;
 		PSG.CountE += PSG.PeriodE - old;
@@ -387,7 +397,7 @@ e8910_callback(void *userdata, uint8_t *stream, int length)
 	while (length > 0)
 	{
         unsigned vol;
-    int left  = 2;
+    int left  = PSG_STEP;
 		/* vola, volb and volc keep track of how long each square wave stays */
 		/* in the 1 position during the sample period. */
 
