@@ -357,6 +357,9 @@ static void vecvox_reset (void)
 }
 #ifdef VECX_HOOKS
 int (*vecx_instruction_hook) (unsigned pc, int bank) = NULL;
+void (*vecx_cart_write_hook) (unsigned address, int bank, unsigned char data) = NULL;
+int (*vecx_cart_read_hook) (unsigned address, int bank, unsigned char *data) = NULL;
+int vecx_flash_external = 0;
 void (*vecx_bank_hook) (int old_bank, int new_bank) = NULL;
 int vecx_get_bank (void) { return currentBank; }
 #endif
@@ -1268,6 +1271,14 @@ unsigned char read8 (unsigned address)
 		   data = cart[address+(currentBank *32768)] & 0xff; // 
 	   else 
 		   data = cart[address+(currentBank *65536)] & 0xff; // 
+#ifdef VECX_HOOKS
+		if (vecx_cart_read_hook)
+		{
+			unsigned char d = data;
+			if (vecx_cart_read_hook (address, currentBank, &d)) return d;
+		}
+		if (vecx_flash_external) return data;
+#endif
 #ifdef FLASH_SUPPORT
 	   
 		if ((idSequenceData == 3) && (idSequenceAddress == 3)  )
@@ -1548,6 +1559,10 @@ void write8 (unsigned address, unsigned char data)
 //					System.out.println("Read 1536 bytes "+String.format("%02X", cart[currentBank][0x4000])+".");
 			}
 		}
+#ifdef VECX_HOOKS
+		if (vecx_cart_write_hook) vecx_cart_write_hook (address, currentBank, data);
+		if (vecx_flash_external) return;
+#endif
 #ifdef FLASH_SUPPORT
 		if ((writeSequenceAddress >= 3) && (writeSequenceData >= 3))
 		{
@@ -2204,6 +2219,9 @@ static einline void vecx_intermediateSteps_static(int count)
 
 
 #ifdef FLASH_SUPPORT
+#ifdef VECX_HOOKS
+      if (!vecx_flash_external) {
+#endif
 
         if ((idSequenceAddress == 0) && (addressBUS == 0x5555)) idSequenceAddress = 1;
         else if ((idSequenceAddress == 1) && ((addressBUS == 0x5555) || (addressBUS == 0x2aaa) ))
@@ -2261,6 +2279,9 @@ static einline void vecx_intermediateSteps_static(int count)
             checkEraseSequence();
             checkWriteSequence();
         }
+#ifdef VECX_HOOKS
+      }
+#endif
 #endif		
   }
 }

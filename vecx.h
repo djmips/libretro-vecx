@@ -87,6 +87,17 @@ extern int (*vecx_instruction_hook) (unsigned pc, int bank);
 extern void (*vecx_bank_hook) (int old_bank, int new_bank);
 
 int vecx_get_bank (void);
+
+/* every CPU write below $C000 (cart space), with the bank it lands in */
+extern void (*vecx_cart_write_hook) (unsigned address, int bank, unsigned char data);
+
+/* every CPU read below $C000; nonzero return means "use *data instead of the ROM
+   byte" (a flash chip answering with its ID or its busy status) */
+extern int (*vecx_cart_read_hook) (unsigned address, int bank, unsigned char *data);
+
+/* nonzero: an external flash model owns cart writes; the built-in FLASH_SUPPORT
+   sequence sniffing and ID answers are switched off */
+extern int vecx_flash_external;
 #endif
 
 #endif
