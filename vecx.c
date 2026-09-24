@@ -255,6 +255,106 @@ long vecx_lightpen_x = 0;
 long vecx_lightpen_y = 0;
 long vecx_lightpen_seen = 0;
 int vecx_get_ca1 (void) { return (int)via_ca1; }
+
+/* VecVox receiver (see vecx.h). A UART at 9600 baud: 156.25 cycles a bit,
+ * kept in eighths of a cycle so the sample points do not drift over a byte.
+ * Edges arrive with their cycle from snd_update; the sampler runs lazily,
+ * up to the time of each edge or clock call, reading the level that held
+ * until then. Sample k (0 = start check, 1-8 = data LSB first, 9 = stop)
+ * is taken at start + 156.25 * (k + 0.5). */
+#define VECVOX_FIFO 64
+int vecx_vecvox_enabled = 0;
+static int vecvox_porta = 0xff;       /* the latch behind PSG port A: what an output pin shows */
+static int vecvox_level = 1;          /* data line as last seen */
+static int vecvox_active = 0;         /* inside a byte */
+static long vecvox_start = 0;         /* cycle the start bit began */
+static int vecvox_k = 0;              /* next sample point */
+static unsigned vecvox_byte = 0;
+static unsigned char vecvox_fifo[VECVOX_FIFO];
+static int vecvox_head = 0, vecvox_count = 0;
+static long vecvox_received_n = 0;
+
+static long vecvox_sample_time (int k)
+{
+   return vecvox_start + (625L * (2L * k + 1L)) / 8L;   /* 156.25 * (k + 0.5) */
+}
+
+void vecx_vecvox_push (int byte)
+{
+   if (vecvox_count >= VECVOX_FIFO) return;              /* lost, as the chip's would be */
+   vecvox_fifo[(vecvox_head + vecvox_count) % VECVOX_FIFO] = (unsigned char)(byte & 0xff);
+   vecvox_count++;
+}
+
+/* Take every sample point at or before `now`, at the level `level`. */
+static void vecvox_sample_until (long now, int level)
+{
+   while (vecvox_active && vecvox_sample_time (vecvox_k) <= now)
+   {
+      if (vecvox_k == 0)
+      {
+         if (level) { vecvox_active = 0; return; }       /* a glitch, not a start bit */
+      }
+      else if (vecvox_k <= 8)
+      {
+         if (level) vecvox_byte |= 1u << (vecvox_k - 1);
+      }
+      else
+      {
+         vecvox_active = 0;                                /* stop bit: framing check */
+         if (level)
+         {
+            vecx_vecvox_push ((int)vecvox_byte);
+            vecvox_received_n++;
+         }
+         return;
+      }
+      vecvox_k++;
+   }
+}
+
+void vecx_vecvox_line (int level, long cycle)
+{
+   level = level ? 1 : 0;
+   if (level == vecvox_level) return;
+   vecvox_sample_until (cycle, vecvox_level);
+   if (!vecvox_active && vecvox_level == 1 && level == 0)
+   {
+      vecvox_active = 1;                                   /* a falling edge starts a byte */
+      vecvox_start = cycle;
+      vecvox_k = 0;
+      vecvox_byte = 0;
+   }
+   vecvox_level = level;
+}
+
+void vecx_vecvox_clock (long cycle)
+{
+   vecvox_sample_until (cycle, vecvox_level);
+}
+
+int vecx_vecvox_pop (void)
+{
+   int byte;
+
+   if (vecvox_count == 0) return -1;
+   byte = vecvox_fifo[vecvox_head];
+   vecvox_head = (vecvox_head + 1) % VECVOX_FIFO;
+   vecvox_count--;
+   return byte;
+}
+
+int vecx_vecvox_count (void) { return vecvox_count; }
+long vecx_vecvox_received (void) { return vecvox_received_n; }
+
+static void vecvox_reset (void)
+{
+   vecvox_level = 1;
+   vecvox_active = 0;
+   vecvox_head = vecvox_count = 0;
+   vecvox_received_n = 0;
+   vecvox_porta = 0xff;
+}
 #ifdef VECX_HOOKS
 int (*vecx_instruction_hook) (unsigned pc, int bank) = NULL;
 void (*vecx_bank_hook) (int old_bank, int new_bank) = NULL;
@@ -1005,6 +1105,13 @@ static einline void snd_update(int command)
 				snd_regs[snd_select] = via_ora;
 				e8910_write(snd_select, via_ora);
 			 }
+			 else
+			 {
+				vecvox_porta = via_ora;   /* the port A latch, kept out of the saved state */
+			 }
+			 /* The VecVox data line: port A bit 4 while port A is an output, else high. */
+			 if (vecx_vecvox_enabled && (snd_select == 7 || snd_select == 14))
+				vecx_vecvox_line ((snd_regs[7] & 0x40) ? (vecvox_porta & 0x10) : 1, cyclesRunning);
 		 }
 
          break;
@@ -1483,6 +1590,7 @@ void vecx_reset (void)
 
 	snd_regs[14] = 0xff;
 	e8910_write(14, 0xff);
+	vecvox_reset();
 
 	snd_select = 0;
 
@@ -2194,6 +2302,7 @@ int vecx_emu (long cycles)
       icycles = e6809_sstep (via_ifr & 0x80, 0);
 	  vecx_intermediateSteps_static(icycles-stepsDone);
       if (reg_pc == 0xf1a2) thisWaitRecal = 1;
+      if (vecvox_active) vecx_vecvox_clock (cyclesRunning);   /* a byte ends by time, not by an edge */
 
       cycles -= (long) icycles;
       fcycles -= (long) icycles;

@@ -58,6 +58,22 @@ extern long vecx_lightpen_y;
 extern long vecx_lightpen_seen;
 int vecx_get_ca1 (void);
 
+/* VecVox: a SpeakJet speech chip in controller port 2. The game sends it
+ * bytes at 9600 baud 8N1 on the port's button 1 line, which is PSG port A
+ * bit 4: low while port A is an output (reg 7 bit 6) with that bit clear,
+ * high while port A is an input. The core watches the PSG writes, decodes
+ * the bytes and queues them in the chip's 64-byte FIFO; the host takes them
+ * out as the chip would play them and drives the "room in the buffer" line.
+ * Not part of the saved state. Off unless the host sets
+ * vecx_vecvox_enabled (--vecvox). */
+extern int vecx_vecvox_enabled;
+void vecx_vecvox_line (int level, long cycle);   /* the data line changed */
+void vecx_vecvox_clock (long cycle);             /* time passed with no change */
+int  vecx_vecvox_pop (void);                     /* next byte, or -1 */
+int  vecx_vecvox_count (void);                   /* bytes queued */
+long vecx_vecvox_received (void);                /* bytes received since reset */
+void vecx_vecvox_push (int byte);                /* as if received (tests, MCP) */
+
 
 #ifdef VECX_HOOKS
 /* vecx_emu() return bits; bit 0 already meant "a frame was rendered" */
