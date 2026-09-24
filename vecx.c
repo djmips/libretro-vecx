@@ -1489,9 +1489,18 @@ void write8 (unsigned address, unsigned char data)
    { 
 		//printf ("Rom write access at: %4X %2X\n", address, data);
 		//void writeExtreme(int addr, byte data)
-		if ((address&0xff)==0xff) 
+		// Movie cart: writing 2 to an address ending in $FF streams the next
+		// movie frame into the cart. An external flash model owns cart writes
+		// (vecx_flash_external), and programming the byte $02 at an address
+		// ending in $FF is an ordinary flash write, so the movie hook must not
+		// take it: it returned before the flash hook ever saw the write.
+		int movieHook = 1;
+#ifdef VECX_HOOKS
+		if (vecx_flash_external) movieHook = 0;
+#endif
+		if (movieHook && ((address&0xff)==0xff))
 		{
-			if (data==2) 
+			if (data==2)
 			{	
 				static int pos = 0;
 				static int readLen = 0;
