@@ -43,6 +43,7 @@ int vecx_serialize(char* dst, int size);
 int vecx_deserialize(char* dst, int size);
 
 void vecx_reset (void);
+void vecx_warm_reset (void);   /* the reset button: CPU, VIA, sound chip; RAM kept */
 int vecx_emu (long cycles);
 
 /* Light pen in controller port 2: its sensor pulls VIA CA1 low while the

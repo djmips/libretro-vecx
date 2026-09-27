@@ -1595,14 +1595,20 @@ void write8 (unsigned address, unsigned char data)
 
 	} /* cartridge */
 }
-void vecx_reset (void)
+/* The reset line resets the CPU, the VIA and the sound chip. Power-on also
+ * fills RAM and sets up the analog side; the reset button (cold == 0) leaves
+ * RAM alone, so the BIOS finds its cold-start flag and skips the intro, and
+ * leaves the beam, the integrators and the VecVox (a separate device) as they are. */
+static void vecx_do_reset (int cold)
 {
 	unsigned r;
 	setbuf(stdout, NULL); // easier to debug with printf
+	if (cold) {
 	/* ram */
 
 	for (r = 0; r < 1024; r++)
 		vecx_ram[r] = r & 0xff;
+	}
 
 	for (r = 0; r < 16; r++)
    {
@@ -1614,7 +1620,7 @@ void vecx_reset (void)
 
 	snd_regs[14] = 0xff;
 	e8910_write(14, 0xff);
-	vecvox_reset();
+	if (cold) vecvox_reset();
 
 	snd_select = 0;
 
@@ -1646,6 +1652,7 @@ void vecx_reset (void)
 	via_cb2h = 1;
 	via_cb2s = 0;
 
+	if (cold) {
 	alg_rsh = 128;
 	alg_xsh = 128;
 	alg_ysh = 128;
@@ -1683,6 +1690,7 @@ void vecx_reset (void)
 	setDigitalVoltage(0x80); // 
 
 	fcycles = FCYCLES_INIT;
+	}
 
 	e6809_read8 = read8;
 	e6809_write8 = write8;
@@ -1708,6 +1716,10 @@ void vecx_reset (void)
 	initTimerArray();
 	
 }
+
+void vecx_reset (void) { vecx_do_reset(1); }
+
+void vecx_warm_reset (void) { vecx_do_reset(0); }
 
 
 /* perform a single cycle worth of via emulation.
